@@ -24,7 +24,7 @@ class Configs(object):
        [common]
        const : configs/const.ini
     """
-    ROOT = os.environ['TF_TOUJIKA']
+    ROOT = os.environ['TENSOROFLOW']
     self.option = dict()
     self.data = dict()
     self.const = dict()

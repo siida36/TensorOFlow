@@ -5,8 +5,8 @@ import numpy as np
 
 from configs.configs import Configs 
 
-ROOT = os.environ['TF_TOUJIKA']
-config_file = '%s/configs/const.ini' % os.environ['TF_TOUJIKA']
+ROOT = os.environ['TENSOROFLOW']
+config_file = '%s/configs/const.ini' % ROOT
 print('data.py: config file is %s' % config_file)
 c = Configs(config_file)
 PAD = c.const['PAD']
