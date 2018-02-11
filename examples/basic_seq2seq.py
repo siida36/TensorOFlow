@@ -24,7 +24,7 @@ from utils.monitor import Monitor
 def main(args):
   # process config
   c = Configs(args.config)
-  ROOT = os.environ['TF_TOUJIKA']
+  ROOT = os.environ['TENSOROFLOW']
   model_path = '%s/examples/model/basic_seq2seq/model' % ROOT
   PAD = c.const['PAD']
   EOS = c.const['EOS']
