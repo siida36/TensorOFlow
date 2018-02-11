@@ -1,0 +1,2 @@
+model_checkpoint_path: "/home/iida/ascetic/tensorflow/tf_toujika_extension/examples/model/basic_seq2seq/model"
+all_model_checkpoint_paths: "/home/iida/ascetic/tensorflow/tf_toujika_extension/examples/model/basic_seq2seq/model"
