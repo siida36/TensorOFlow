@@ -97,43 +97,62 @@ def main(args):
   train_op = tf.train.AdamOptimizer().minimize(loss)
   
   saver = tf.train.Saver()
-  batch_idx = {'train': 0, 'valid': 0, 'test': 0}
+  minibatch_idx = {'train': 0, 'valid': 0, 'test': 0}
   with tf.Session() as sess:
     if args.mode == 'train':
       # train
-      loss_freq = train_step // 100
+      global_max_step = train_step * (len(source_train_datas) // batch_size + 1)
+      loss_freq = global_max_step // 100
       loss_log = []
+      batch_loss_log = []
       loss_suffix = ''
       es = EarlyStopper(max_size=5, edge_threshold=0.1)
-      m = Monitor(train_step)
+      m = Monitor(global_max_step)
       sess.run(tf.global_variables_initializer())
-      for i in range(train_step):
-        m.monitor(i, loss_suffix)
-        source_train_batch, _ = batchnize(source_train_datas, batch_size, batch_idx['train'])
-        target_train_batch, batch_idx['train'] = batchnize(target_train_datas, batch_size, batch_idx['train'])
-        batch_data = seq2seq(source_train_batch, target_train_batch, max_time, vocabulary_size)
-        feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
-                     decoder_inputs:batch_data['decoder_inputs'],
-                     decoder_labels:batch_data['decoder_labels']}
-        sess.run(fetches=[train_op, loss], feed_dict=feed_dict)
-        if i % loss_freq == 0:
-          source_valid_batch, _ = batchnize(source_valid_datas, batch_size, batch_idx['valid'])
-          target_valid_batch, batch_idx['valid'] = batchnize(target_valid_datas, batch_size, batch_idx['valid'])
-          batch_data = seq2seq(source_valid_batch, target_valid_batch, max_time, vocabulary_size)
+      global_step = 0
+      stop_flag = False
+      for batch in range(train_step):
+        if stop_flag:
+          break
+        current_batch_loss_log = []
+        while True: # minibatch process
+          m.monitor(global_step, loss_suffix)
+          source_train_batch, _ = batchnize(source_train_datas, batch_size, minibatch_idx['train'])
+          target_train_batch, minibatch_idx['train'] = batchnize(target_train_datas, batch_size, minibatch_idx['train'])
+          batch_data = seq2seq(source_train_batch, target_train_batch, max_time, vocabulary_size)
           feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
                        decoder_inputs:batch_data['decoder_inputs'],
                        decoder_labels:batch_data['decoder_labels']}
-          loss_val = sess.run(fetches=loss, feed_dict=feed_dict)
-          loss_log.append(loss_val)
-          loss_suffix = 'loss: %f' % loss_val
-          es_status = es(loss_val)
-          if i > train_step // 2 and es_status:
-            print('early stopping at step: %d' % i)
+          sess.run(fetches=[train_op, loss], feed_dict=feed_dict)
+          if global_step % loss_freq == 0:
+            source_valid_batch, _ = batchnize(source_valid_datas, batch_size, minibatch_idx['valid'])
+            target_valid_batch, minibatch_idx['valid'] = batchnize(target_valid_datas, batch_size, minibatch_idx['valid'])
+            batch_data = seq2seq(source_valid_batch, target_valid_batch, max_time, vocabulary_size)
+            feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
+                         decoder_inputs:batch_data['decoder_inputs'],
+                         decoder_labels:batch_data['decoder_labels']}
+            loss_val = sess.run(fetches=loss, feed_dict=feed_dict)
+            loss_log.append(loss_val)
+            current_batch_loss_log.append(loss_val)
+            loss_suffix = 'loss: %f' % loss_val
+            es_status = es(loss_val)
+            if batch > train_step // 2 and es_status:
+              print('early stopping at step: %d' % global_step)
+              stop_flag = True
+              break
+          global_step += 1
+          if minibatch_idx['train'] == 0:
+            batch_loss = np.mean(current_batch_loss_log)
+            batch_loss_log.append(batch_loss)
+            print('Batch: {}/{}, batch loss: {}'.format(batch + 1, train_step, batch_loss))
             break
       saver.save(sess, model_path)
       print('save at %s' % model_path)
       plt.plot(np.arange(len(loss_log)) * loss_freq, loss_log)
-      plt.savefig('%s_loss.png' % model_path)
+      plt.savefig('%s_global_loss.png' % model_path)
+      plt.figure()
+      plt.plot(np.arange(len(batch_loss_log)), batch_loss_log)
+      plt.savefig('%s_batch_loss.png' % model_path)
     elif args.mode == 'eval':
       saver.restore(sess, model_path)
       print('load from %s' % model_path)
@@ -145,8 +164,8 @@ def main(args):
     input_vectors = None
     predict_vectors = None
     for i in range(len(source_test_datas) // batch_size + 1):
-      source_test_batch, _ = batchnize(source_test_datas, batch_size, batch_idx['test'])
-      target_test_batch, batch_idx['test'] = batchnize(target_test_datas, batch_size, batch_idx['test'])
+      source_test_batch, _ = batchnize(source_test_datas, batch_size, minibatch_idx['test'])
+      target_test_batch, minibatch_idx['test'] = batchnize(target_test_datas, batch_size, minibatch_idx['test'])
       batch_data = seq2seq(source_test_batch, target_test_batch, max_time, vocabulary_size)
       feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
                    decoder_inputs:batch_data['decoder_inputs'],
