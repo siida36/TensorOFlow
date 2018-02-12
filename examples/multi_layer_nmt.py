@@ -9,6 +9,7 @@
 
 import argparse
 import os
+import pickle
 import sys
 
 import matplotlib.pyplot as plt
@@ -25,7 +26,12 @@ def main(args):
   # process config
   c = Configs(args.config)
   ROOT = os.environ['TENSOROFLOW']
-  model_path = '%s/examples/model/multi_layer_nmt/model' % ROOT
+  model_directory = '%s/examples/model/multi_layer_nmt' % ROOT
+  model_path = '%s/model' % model_directory
+  dictionary_path = {'source': '%s/source_dictionary.pickle' % model_directory,
+                     'source_reverse': '%s/source_reverse_dictionary.pickle' % model_directory,
+                     'target': '%s/target_dictionary.pickle' % model_directory,
+                     'target_reverse': '%s/target_reverse_dictionary.pickle' % model_directory }
   PAD = c.const['PAD']
   EOS = c.const['EOS']
   train_step = c.option['train_step']
@@ -43,13 +49,28 @@ def main(args):
   target_test_data_path = c.data['target_test_data']
 
   # read data
-  source_dictionary, source_reverse_dictionary = build_dictionary(read_words(source_train_data_path), vocabulary_size)
-  source_train_datas = [sentence_to_onehot(lines, source_dictionary) for lines in read_data(source_train_data_path)]
-  target_dictionary, target_reverse_dictionary = build_dictionary(read_words(target_train_data_path), vocabulary_size)
-  target_train_datas = [sentence_to_onehot(lines, target_dictionary) for lines in read_data(target_train_data_path)]
+  if args.mode == 'train':
+    source_dictionary, source_reverse_dictionary = build_dictionary(read_words(source_train_data_path), vocabulary_size)
+    source_train_datas = [sentence_to_onehot(lines, source_dictionary) for lines in read_data(source_train_data_path)]
+    target_dictionary, target_reverse_dictionary = build_dictionary(read_words(target_train_data_path), vocabulary_size)
+    target_train_datas = [sentence_to_onehot(lines, target_dictionary) for lines in read_data(target_train_data_path)]
 
-  source_valid_datas = [sentence_to_onehot(lines, source_dictionary) for lines in read_data(source_valid_data_path)]
-  target_valid_datas = [sentence_to_onehot(lines, target_dictionary) for lines in read_data(target_valid_data_path)]
+    source_valid_datas = [sentence_to_onehot(lines, source_dictionary) for lines in read_data(source_valid_data_path)]
+    target_valid_datas = [sentence_to_onehot(lines, target_dictionary) for lines in read_data(target_valid_data_path)]
+
+    if args.debug:
+      source_train_datas = source_train_datas[:1000]
+      target_train_datas = source_train_datas[:1000]
+  else:
+    with open(dictionary_path['source'], 'rb') as f1, \
+         open(dictionary_path['source_reverse'], 'rb') as f2, \
+         open(dictionary_path['target'], 'rb') as f3, \
+         open(dictionary_path['target_reverse'], 'rb') as f4:
+      source_dictionary = pickle.load(f1)
+      source_reverse_dictionary = pickle.load(f2)
+      target_dictionary = pickle.load(f3)
+      target_reverse_dictionary = pickle.load(f4)
+
   source_test_datas = [sentence_to_onehot(lines, source_dictionary) for lines in read_data(source_test_data_path)]
   target_test_datas = [sentence_to_onehot(lines, target_dictionary) for lines in read_data(target_test_data_path)]
 
@@ -102,7 +123,7 @@ def main(args):
     if args.mode == 'train':
       # train
       global_max_step = train_step * (len(source_train_datas) // batch_size + 1)
-      loss_freq = global_max_step // 100
+      loss_freq = global_max_step // 100 if global_max_step > 100 else 1
       loss_log = []
       batch_loss_log = []
       loss_suffix = ''
@@ -146,18 +167,34 @@ def main(args):
             batch_loss_log.append(batch_loss)
             print('Batch: {}/{}, batch loss: {}'.format(batch + 1, train_step, batch_loss))
             break
+
+      # save tf.graph and variables
       saver.save(sess, model_path)
       print('save at %s' % model_path)
+
+      # save plot of loss
       plt.plot(np.arange(len(loss_log)) * loss_freq, loss_log)
       plt.savefig('%s_global_loss.png' % model_path)
       plt.figure()
       plt.plot(np.arange(len(batch_loss_log)), batch_loss_log)
       plt.savefig('%s_batch_loss.png' % model_path)
+
+      # save dictionary
+      with open(dictionary_path['source'], 'wb') as f1, \
+           open(dictionary_path['source_reverse'], 'wb') as f2, \
+           open(dictionary_path['target'], 'wb') as f3, \
+           open(dictionary_path['target_reverse'], 'wb') as f4:
+        pickle.dump(source_dictionary, f1)
+        pickle.dump(source_reverse_dictionary, f2)
+        pickle.dump(target_dictionary, f3)
+        pickle.dump(target_reverse_dictionary, f4)
+
     elif args.mode == 'eval':
       saver.restore(sess, model_path)
       print('load from %s' % model_path)
+
     else:
-      raise
+      raise # args.mode should be train or eval
 
     # evaluate
     loss_val = []
@@ -208,6 +245,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument('--mode', '-m', type=str, help='train | eval')
   parser.add_argument('--config', '-c', type=str, help='config file path')
+  parser.add_argument('--debug', '-d', type=bool, default=False, help='flag of debug mode')
   args = parser.parse_args()
   main(args)
   
