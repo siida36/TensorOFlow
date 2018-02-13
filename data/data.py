@@ -99,14 +99,20 @@ def batchnize(data: Sequence[A], batch_size: int, batch_idx: int) -> Sequence[A]
   over = batch_size - len(last)
   return np.concatenate((last, data[:over])), 0
 
-def seq2seq(source_datas: List[List[int]], target_datas: List[List[int]], max_time: int, vocabulary_size: int) -> dict:
+def seq2seq(source_datas: List[List[int]], target_datas: List[List[int]], max_time: int, vocabulary_size: int, use_BOS=True, decoder_time_append=False) -> dict:
   """
   Examples:
   """
-  decoder_max_time = max_time + 1
-  encoder_inputs = [padding(data, max_time) for data in source_datas]
-  decoder_inputs = [padding(np.concatenate([[EOS], data]), decoder_max_time) for data in target_datas]
-  decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time) for data in target_datas]
+  decoder_max_time = max_time + 1 if decoder_time_append else max_time
+  if not use_BOS:
+    encoder_inputs = [padding(data, max_time) for data in source_datas]
+    decoder_inputs = [padding(np.concatenate([[EOS], data]), decoder_max_time) for data in target_datas]
+    decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time) for data in target_datas]
+  else:
+    encoder_inputs = [padding(np.concatenate([[BOS], data]), max_time) for data in source_datas]
+    decoder_inputs = [padding(np.concatenate([[EOS], data]), decoder_max_time) for data in target_datas]
+    decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time) for data in target_datas]
+
   res = {'encoder_inputs': np.array(encoder_inputs).T, 
          'decoder_inputs': np.array(decoder_inputs).T, 
          'decoder_labels': np.array(decoder_labels).T}

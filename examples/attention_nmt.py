@@ -33,6 +33,7 @@ def main(args):
                      'target': '%s/target_dictionary.pickle' % model_directory,
                      'target_reverse': '%s/target_reverse_dictionary.pickle' % model_directory }
   PAD = c.const['PAD']
+  BOS = c.const['BOS']
   EOS = c.const['EOS']
   train_step = c.option['train_step']
   max_time = c.option['max_time']
@@ -86,37 +87,65 @@ def main(args):
 
   # encoder
   encoder_units = hidden_units
-  encoder_layers = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
-  encoder_cell = tf.contrib.rnn.MultiRNNCell(encoder_layers)
-  encoder_output, encoder_state = tf.nn.dynamic_rnn(
+  encoder_cell = tf.contrib.rnn.LSTMCell(encoder_units)
+  encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
       encoder_cell, encoder_inputs_embedded,
       dtype=tf.float32, time_major=True
   )
 
   # decoder with attention
   decoder_units = encoder_units
-  decoder_layers = [tf.contrib.rnn.LSTMCell(size) for size in [decoder_units] * layers]
+  attention_units = decoder_units
+  cell = tf.contrib.rnn.LSTMCell(decoder_units)
 
-  attention_mechanism = tf.contrib.seq2seq.LuongAttention(512, encoder_output)
-  attn_decoder_layers = [tf.contrib.seq2seq.AttentionWrapper(cell, attention_mechanism, attention_layer_size=256) for cell in decoder_layers] 
-  decoder_cell = tf.contrib.rnn.MultiRNNCell(decoder_layers)
-  initial_state = decoder_cell.zero_state(batch_size, tf.float32)
-  #initial_state = decoder_cell.zero_state(batch_size, tf.float32).clone(cell_state=encoder_state)
+  sequence_length = tf.cast([max_time] * batch_size, dtype=tf.int32)
+  beam_width = 1
+  tiled_encoder_outputs = tf.contrib.seq2seq.tile_batch(
+      encoder_outputs, multiplier=beam_width)
+  tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(
+      encoder_state, multiplier=beam_width)
+  tiled_sequence_length = tf.contrib.seq2seq.tile_batch(
+      sequence_length, multiplier=beam_width)
+  attention_mechanism = tf.contrib.seq2seq.LuongAttention(
+      num_units=attention_units,
+      memory=tiled_encoder_outputs,
+      memory_sequence_length=tiled_sequence_length)
+  attention_cell = tf.contrib.seq2seq.AttentionWrapper(
+    cell, attention_mechanism, attention_layer_size=256)
+  decoder_initial_state = attention_cell.zero_state(
+      dtype=tf.float32, batch_size=batch_size * beam_width)
+  decoder_initial_state = decoder_initial_state.clone(
+      cell_state=tiled_encoder_final_state)
 
-  decoder_output, decoder_final_state = tf.nn.dynamic_rnn(
-      decoder_cell, decoder_inputs_embedded,
-      initial_state=initial_state,
-      scope="plain_decoder",
-      dtype=tf.float32, time_major=True
-  )
+  if args.mode == 'train':
+    helper = tf.contrib.seq2seq.TrainingHelper(
+      inputs=decoder_inputs_embedded,
+      sequence_length=tf.cast([max_time] * batch_size, dtype=tf.int32),
+      time_major=True)
+  elif args.mode == 'eval':
+    helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
+      embedding=embeddings,
+      start_tokens=tf.tile([BOS], [batch_size]),
+      end_token=EOS) 
 
-  decoder_logits = tf.contrib.layers.linear(decoder_output, vocabulary_size)
+  decoder = tf.contrib.seq2seq.BasicDecoder(
+    cell=attention_cell,
+    helper=helper,
+    initial_state=decoder_initial_state)
+  decoder_outputs = tf.contrib.seq2seq.dynamic_decode(
+     decoder=decoder,
+     output_time_major=True,
+     impute_finished=False,
+     maximum_iterations=max_time)
+
+  decoder_logits = tf.contrib.layers.linear(decoder_outputs[0][0], vocabulary_size)
   decoder_prediction = tf.argmax(decoder_logits, 2) # max_time: axis=0, batch: axis=1, vocab: axis=2
+  #decoder_prediction = tf.argmax(decoder_logits, 1) # max_time: axis=0, batch: axis=1, vocab: axis=2
 
   # optimizer
   stepwise_cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
       labels=tf.one_hot(decoder_labels, depth=vocabulary_size, dtype=tf.float32),
-      logits=decoder_logits,
+      logits=decoder_logits
   )
 
   loss = tf.reduce_mean(stepwise_cross_entropy)
