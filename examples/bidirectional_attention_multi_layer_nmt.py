@@ -1,8 +1,8 @@
 # coding: utf-8
 #
 # Usage:
-#   python examples/bidirectional_attention_nmt.py -m train -c configs/bidirectional_attention_nmt.ini
-#   python examples/bidirectional_attention_nmt.py -m eval -c configs/bidirectional_attention_nmt.ini
+#   python examples/bidirectional_attention_multi_layer_nmt.py -m train -c configs/bidirectional_attention_multi_layer_nmt.ini
+#   python examples/bidirectional_attention_multi_layer_nmt.py -m eval -c configs/bidirectional_attention_multi_layer_nmt.ini
 #
 # Purpose:
 #   Input some sequence, then predict same sequence(+ EOS token).
@@ -26,7 +26,7 @@ def main(args):
   # process config
   c = Configs(args.config)
   ROOT = os.environ['TENSOROFLOW']
-  model_directory = '%s/examples/model/bidirectional_attention_nmt' % ROOT
+  model_directory = '%s/examples/model/bidirectional_attention_multi_layer_nmt' % ROOT
   model_path = '%s/model' % model_directory
   dictionary_path = {'source': '%s/source_dictionary.pickle' % model_directory,
                      'source_reverse': '%s/source_reverse_dictionary.pickle' % model_directory,
@@ -87,23 +87,22 @@ def main(args):
 
   # encoder with bidirection
   encoder_units = hidden_units
-  #encoder_layers_fw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
-  #encoder_cell_fw = tf.contrib.rnn.MultiRNNCell(encoder_layers_fw)
-  #encoder_layers_bw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
-  #encoder_cell_bw = tf.contrib.rnn.MultiRNNCell(encoder_layers_bw)
-  encoder_cell_fw = tf.contrib.rnn.LSTMCell(encoder_units)
-  encoder_cell_bw = tf.contrib.rnn.LSTMCell(encoder_units)
+  encoder_layers_fw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
+  encoder_cell_fw = tf.contrib.rnn.MultiRNNCell(encoder_layers_fw)
+  encoder_layers_bw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
+  encoder_cell_bw = tf.contrib.rnn.MultiRNNCell(encoder_layers_bw)
   (encoder_output_fw, encoder_output_bw), encoder_state = tf.nn.bidirectional_dynamic_rnn(
       encoder_cell_fw, encoder_cell_bw, encoder_inputs_embedded,
       dtype=tf.float32, time_major=True
   )
   encoder_outputs = tf.concat((encoder_output_fw, encoder_output_bw), 2)
-  encoder_state = tf.contrib.rnn.LSTMStateTuple(tf.concat((encoder_state[0].c, encoder_state[1].c), 1), tf.concat((encoder_state[0].h, encoder_state[1].h), 1))
+  encoder_state = tuple(tf.contrib.rnn.LSTMStateTuple(tf.concat((encoder_state[0][layer].c, encoder_state[1][layer].c), 1), tf.concat((encoder_state[0][layer].h, encoder_state[1][layer].h), 1)) for layer in range(layers)) 
 
   # decoder with attention
   decoder_units = encoder_units * 2
   attention_units = decoder_units
-  cell = tf.contrib.rnn.LSTMCell(decoder_units)
+  decoder_layers = [tf.contrib.rnn.LSTMCell(size) for size in [decoder_units] * layers]
+  cell = tf.contrib.rnn.MultiRNNCell(decoder_layers)
 
   sequence_length = tf.cast([max_time] * batch_size, dtype=tf.int32)
   beam_width = 1

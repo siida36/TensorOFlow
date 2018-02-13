@@ -1,8 +1,8 @@
 # coding: utf-8
 #
 # Usage:
-#   python examples/bidirectional_attention_nmt.py -m train -c configs/bidirectional_attention_nmt.ini
-#   python examples/bidirectional_attention_nmt.py -m eval -c configs/bidirectional_attention_nmt.ini
+#   python examples/attention_nmt.py -m train -c configs/attention_nmt.ini
+#   python examples/attention_nmt.py -m eval -c configs/attention_nmt.ini
 #
 # Purpose:
 #   Input some sequence, then predict same sequence(+ EOS token).
@@ -26,7 +26,7 @@ def main(args):
   # process config
   c = Configs(args.config)
   ROOT = os.environ['TENSOROFLOW']
-  model_directory = '%s/examples/model/bidirectional_attention_nmt' % ROOT
+  model_directory = '%s/examples/model/attention_nmt' % ROOT
   model_path = '%s/model' % model_directory
   dictionary_path = {'source': '%s/source_dictionary.pickle' % model_directory,
                      'source_reverse': '%s/source_reverse_dictionary.pickle' % model_directory,
@@ -85,28 +85,20 @@ def main(args):
   encoder_inputs_embedded = tf.nn.embedding_lookup(embeddings, encoder_inputs)
   decoder_inputs_embedded = tf.nn.embedding_lookup(embeddings, decoder_inputs)
 
-  # encoder with bidirection
+  # encoder
   encoder_units = hidden_units
-  #encoder_layers_fw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
-  #encoder_cell_fw = tf.contrib.rnn.MultiRNNCell(encoder_layers_fw)
-  #encoder_layers_bw = [tf.contrib.rnn.LSTMCell(size) for size in [encoder_units] * layers]
-  #encoder_cell_bw = tf.contrib.rnn.MultiRNNCell(encoder_layers_bw)
-  encoder_cell_fw = tf.contrib.rnn.LSTMCell(encoder_units)
-  encoder_cell_bw = tf.contrib.rnn.LSTMCell(encoder_units)
-  (encoder_output_fw, encoder_output_bw), encoder_state = tf.nn.bidirectional_dynamic_rnn(
-      encoder_cell_fw, encoder_cell_bw, encoder_inputs_embedded,
+  encoder_cell = tf.contrib.rnn.LSTMCell(encoder_units)
+  encoder_outputs, encoder_state = tf.nn.dynamic_rnn(
+      encoder_cell, encoder_inputs_embedded,
       dtype=tf.float32, time_major=True
   )
-  encoder_outputs = tf.concat((encoder_output_fw, encoder_output_bw), 2)
-  encoder_state = tf.contrib.rnn.LSTMStateTuple(tf.concat((encoder_state[0].c, encoder_state[1].c), 1), tf.concat((encoder_state[0].h, encoder_state[1].h), 1))
 
   # decoder with attention
-  decoder_units = encoder_units * 2
-  attention_units = decoder_units
+  decoder_units = encoder_units
   cell = tf.contrib.rnn.LSTMCell(decoder_units)
 
   sequence_length = tf.cast([max_time] * batch_size, dtype=tf.int32)
-  beam_width = 1
+  beam_width = 5
   tiled_encoder_outputs = tf.contrib.seq2seq.tile_batch(
       encoder_outputs, multiplier=beam_width)
   tiled_encoder_final_state = tf.contrib.seq2seq.tile_batch(
@@ -114,7 +106,7 @@ def main(args):
   tiled_sequence_length = tf.contrib.seq2seq.tile_batch(
       sequence_length, multiplier=beam_width)
   attention_mechanism = tf.contrib.seq2seq.LuongAttention(
-      num_units=attention_units,
+      num_units=512,
       memory=tiled_encoder_outputs,
       memory_sequence_length=tiled_sequence_length)
   attention_cell = tf.contrib.seq2seq.AttentionWrapper(
@@ -127,6 +119,7 @@ def main(args):
   if args.mode == 'train':
     helper = tf.contrib.seq2seq.TrainingHelper(
       inputs=decoder_inputs_embedded,
+      #sequence_length=tf.placeholder(shape=(None,), dtype=tf.int32),
       sequence_length=tf.cast([max_time] * batch_size, dtype=tf.int32),
       time_major=True)
   elif args.mode == 'eval':
@@ -136,22 +129,32 @@ def main(args):
       end_token=EOS) 
 
   decoder = tf.contrib.seq2seq.BasicDecoder(
-    cell=attention_cell,
+    cell=cell,
     helper=helper,
-    initial_state=decoder_initial_state)
+    initial_state=cell.zero_state(batch_size, tf.float32))
   decoder_outputs = tf.contrib.seq2seq.dynamic_decode(
      decoder=decoder,
      output_time_major=True,
      impute_finished=False,
      maximum_iterations=max_time)
 
+  """
+  decoder_output, decoder_final_state = tf.nn.dynamic_rnn(
+      attention_cell, decoder_inputs_embedded,
+      initial_state=decoder_initial_state,
+      scope="plain_decoder",
+      dtype=tf.float32, time_major=True
+  )
+  """
+
   decoder_logits = tf.contrib.layers.linear(decoder_outputs[0][0], vocabulary_size)
   decoder_prediction = tf.argmax(decoder_logits, 2) # max_time: axis=0, batch: axis=1, vocab: axis=2
+  #decoder_prediction = tf.argmax(decoder_logits, 1) # max_time: axis=0, batch: axis=1, vocab: axis=2
 
   # optimizer
   stepwise_cross_entropy = tf.nn.softmax_cross_entropy_with_logits(
       labels=tf.one_hot(decoder_labels, depth=vocabulary_size, dtype=tf.float32),
-      logits=decoder_logits,
+      logits=decoder_logits
   )
 
   loss = tf.reduce_mean(stepwise_cross_entropy)
@@ -196,15 +199,16 @@ def main(args):
             loss_log.append(loss_val)
             current_batch_loss_log.append(loss_val)
             loss_suffix = 'loss: %f' % loss_val
+            es_status = es(loss_val)
+            if batch > train_step // 2 and es_status:
+              print('early stopping at step: %d' % global_step)
+              stop_flag = True
+              break
           global_step += 1
           if minibatch_idx['train'] == 0:
             batch_loss = np.mean(current_batch_loss_log)
             batch_loss_log.append(batch_loss)
             print('Batch: {}/{}, batch loss: {}'.format(batch + 1, train_step, batch_loss))
-            es_status = es(batch_loss)
-            if batch > train_step // 2 and es_status:
-              print('early stopping at step: %d' % global_step)
-              stop_flag = True
             break
 
       # save tf.graph and variables
