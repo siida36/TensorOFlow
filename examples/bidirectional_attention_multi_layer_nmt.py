@@ -20,6 +20,7 @@ from configs.configs import Configs
 from data.data import read_data, read_words, batchnize, build_dictionary, sentence_to_onehot, seq2seq
 from utils.early_stopping import EarlyStopper
 from utils.monitor import Monitor
+from utils.logger import Logger
 
 
 def main(args):
@@ -168,6 +169,7 @@ def main(args):
       loss_suffix = ''
       es = EarlyStopper(max_size=5, edge_threshold=0.1)
       m = Monitor(global_max_step)
+      log = Logger('%s/log' % model_directory)
       sess.run(tf.global_variables_initializer())
       global_step = 0
       stop_flag = False
@@ -184,6 +186,7 @@ def main(args):
                        decoder_inputs:batch_data['decoder_inputs'],
                        decoder_labels:batch_data['decoder_labels']}
           sess.run(fetches=[train_op, loss], feed_dict=feed_dict)
+          log('global_step: %s\n' % global_step)
           if global_step % loss_freq == 0:
             source_valid_batch, _ = batchnize(source_valid_datas, batch_size, minibatch_idx['valid'])
             target_valid_batch, minibatch_idx['valid'] = batchnize(target_valid_datas, batch_size, minibatch_idx['valid'])

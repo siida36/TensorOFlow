@@ -37,8 +37,8 @@ def sentence_to_onehot(sentence: str, dictionary: dict) -> List[int]:
 
 def build_dictionary(words, vocabulary_size):
   """Process raw inputs into a dataset."""
-  count = [['PAD', -1], ['EOS', -1], ['BOS', -1], ['UNK', -1]]
-  count.extend(collections.Counter(words).most_common(vocabulary_size - 1))
+  count = [['PAD', -1], ['EOS', -1], ['BOS', -1], ['UNK', -1]] # reserved
+  count.extend(collections.Counter(words).most_common(vocabulary_size - len(count)))
   dictionary = dict()
   for word, _ in count:
     dictionary[word] = len(dictionary)
@@ -51,7 +51,6 @@ def build_dictionary(words, vocabulary_size):
     data.append(index)
   count[UNK][1] = unk_count
   reversed_dictionary = dict(zip(dictionary.values(), dictionary.keys()))
-  #return data, count, dictionary, reversed_dictionary
   return dictionary, reversed_dictionary
 
 def simple_data(max_time: int, vocabulary_size: int) -> Sequence[int]:
