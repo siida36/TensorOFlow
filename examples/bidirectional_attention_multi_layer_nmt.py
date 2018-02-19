@@ -10,6 +10,8 @@
 import argparse
 import os
 import pickle
+import pathlib
+import shutil
 import sys
 
 import matplotlib.pyplot as plt
@@ -27,7 +29,8 @@ def main(args):
   # process config
   c = Configs(args.config)
   ROOT = os.environ['TENSOROFLOW']
-  model_directory = '%s/examples/model/bidirectional_attention_multi_layer_nmt' % ROOT
+  output = c.option.get('output', 'examples/model/buf')
+  model_directory = '%s/%s' % (ROOT, output)
   model_path = '%s/model' % model_directory
   dictionary_path = {'source': '%s/source_dictionary.pickle' % model_directory,
                      'source_reverse': '%s/source_reverse_dictionary.pickle' % model_directory,
@@ -49,6 +52,24 @@ def main(args):
   target_valid_data_path = c.data['target_valid_data']
   source_test_data_path = c.data['source_test_data']
   target_test_data_path = c.data['target_test_data']
+
+  # initialize output directory
+  if pathlib.Path(model_directory).exists():
+    print('Warning: model %s is exists.')
+    print('Old model will be overwritten.')
+    while True:
+      print('Do you wanna continue? [yes|no]')
+      command = input('> ')
+      if command == 'yes':
+        shutil.rmtree(model_directory)
+        break
+      elif command == 'no':
+        sys.exit()
+      else:
+        print('You can only input "yes" or "no".')
+
+  print('Make new model: %s' % model_directory)
+  pathlib.Path(model_directory).mkdir()
 
   # read data
   if args.mode == 'train':
