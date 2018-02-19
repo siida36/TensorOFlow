@@ -130,6 +130,12 @@ def main(args):
       sequence_length=tf.cast([max_time] * batch_size, dtype=tf.int32),
       time_major=True)
   elif args.mode == 'eval':
+    """
+    helper = tf.contrib.seq2seq.TrainingHelper(
+      inputs=decoder_inputs_embedded,
+      sequence_length=tf.cast([max_time] * batch_size, dtype=tf.int32),
+      time_major=True)
+    """
     helper = tf.contrib.seq2seq.GreedyEmbeddingHelper(
       embedding=embeddings,
       start_tokens=tf.tile([BOS], [batch_size]),
@@ -155,7 +161,8 @@ def main(args):
   )
 
   loss = tf.reduce_mean(stepwise_cross_entropy)
-  train_op = tf.train.AdamOptimizer().minimize(loss)
+  regularizer = 0.0 * tf.nn.l2_loss(decoder_outputs[0][0])
+  train_op = tf.train.AdamOptimizer().minimize(loss + regularizer)
   
   saver = tf.train.Saver()
   minibatch_idx = {'train': 0, 'valid': 0, 'test': 0}
@@ -181,16 +188,16 @@ def main(args):
           m.monitor(global_step, loss_suffix)
           source_train_batch, _ = batchnize(source_train_datas, batch_size, minibatch_idx['train'])
           target_train_batch, minibatch_idx['train'] = batchnize(target_train_datas, batch_size, minibatch_idx['train'])
-          batch_data = seq2seq(source_train_batch, target_train_batch, max_time, vocabulary_size)
+          batch_data = seq2seq(source_train_batch, target_train_batch, max_time, vocabulary_size, reverse=True)
           feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
                        decoder_inputs:batch_data['decoder_inputs'],
                        decoder_labels:batch_data['decoder_labels']}
           sess.run(fetches=[train_op, loss], feed_dict=feed_dict)
-          log('global_step: %s\n' % global_step)
+
           if global_step % loss_freq == 0:
             source_valid_batch, _ = batchnize(source_valid_datas, batch_size, minibatch_idx['valid'])
             target_valid_batch, minibatch_idx['valid'] = batchnize(target_valid_datas, batch_size, minibatch_idx['valid'])
-            batch_data = seq2seq(source_valid_batch, target_valid_batch, max_time, vocabulary_size)
+            batch_data = seq2seq(source_valid_batch, target_valid_batch, max_time, vocabulary_size, reverse=True)
             feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
                          decoder_inputs:batch_data['decoder_inputs'],
                          decoder_labels:batch_data['decoder_labels']}
@@ -202,7 +209,9 @@ def main(args):
           if minibatch_idx['train'] == 0:
             batch_loss = np.mean(current_batch_loss_log)
             batch_loss_log.append(batch_loss)
-            print('Batch: {}/{}, batch loss: {}'.format(batch + 1, train_step, batch_loss))
+            loss_msg = 'Batch: {}/{}, batch loss: {}'.format(batch + 1, train_step, batch_loss)
+            print(loss_msg)
+            log(loss_msg)
             es_status = es(batch_loss)
             if batch > train_step // 2 and es_status:
               print('early stopping at step: %d' % global_step)
@@ -244,7 +253,7 @@ def main(args):
     for i in range(len(source_test_datas) // batch_size + 1):
       source_test_batch, _ = batchnize(source_test_datas, batch_size, minibatch_idx['test'])
       target_test_batch, minibatch_idx['test'] = batchnize(target_test_datas, batch_size, minibatch_idx['test'])
-      batch_data = seq2seq(source_test_batch, target_test_batch, max_time, vocabulary_size)
+      batch_data = seq2seq(source_test_batch, target_test_batch, max_time, vocabulary_size, reverse=True)
       feed_dict = {encoder_inputs:batch_data['encoder_inputs'],
                    decoder_inputs:batch_data['decoder_inputs'],
                    decoder_labels:batch_data['decoder_labels']}
@@ -262,9 +271,10 @@ def main(args):
 
     input_sentences = ''
     predict_sentences = ''
+    ignore_token = EOS
     for i, (input_vector, predict_vector) in enumerate(zip(input_vectors[:len(source_test_datas)], predict_vectors[:len(target_test_datas)])):
-      input_sentences += ' '.join([source_reverse_dictionary[vector] for vector in input_vector if not vector == PAD])
-      predict_sentences += ' '.join([target_reverse_dictionary[vector] for vector in predict_vector if not vector == PAD])
+      input_sentences += ' '.join([source_reverse_dictionary[vector] for vector in input_vector if not vector == ignore_token])
+      predict_sentences += ' '.join([target_reverse_dictionary[vector] for vector in predict_vector if not vector == ignore_token])
       if i < len(source_test_datas) - 1:
         input_sentences += '\n'
         predict_sentences += '\n'
