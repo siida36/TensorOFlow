@@ -62,12 +62,12 @@ def simple_data(max_time: int, vocabulary_size: int) -> Sequence[int]:
   time = np.random.randint(1, max_time)
   return np.random.randint(END_TOKEN, vocabulary_size, size=(time))
 
-def padding(vector: Sequence[A], max_size: int) -> Sequence[A]:
+def padding(vector: Sequence[A], max_size: int, pad=PAD) -> Sequence[A]:
   if len(vector) >= max_size:
     return vector[:max_size]
   new_v = []
   for i in range(max_size):
-    item = 0 if len(vector) <= i else vector[i]
+    item = pad if len(vector) <= i else vector[i]
     new_v.append(item)
   return new_v
 
@@ -98,19 +98,23 @@ def batchnize(data: Sequence[A], batch_size: int, batch_idx: int) -> Sequence[A]
   over = batch_size - len(last)
   return np.concatenate((last, data[:over])), 0
 
-def seq2seq(source_datas: List[List[int]], target_datas: List[List[int]], max_time: int, vocabulary_size: int, use_BOS=True, decoder_time_append=False) -> dict:
+def seq2seq(source_datas: List[List[int]], target_datas: List[List[int]], max_time: int, vocabulary_size: int, use_BOS=True, decoder_time_append=False, reverse=False) -> dict:
   """
   Examples:
   """
   decoder_max_time = max_time + 1 if decoder_time_append else max_time
+
   if not use_BOS:
     encoder_inputs = [padding(data, max_time) for data in source_datas]
     decoder_inputs = [padding(np.concatenate([[EOS], data]), decoder_max_time) for data in target_datas]
     decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time) for data in target_datas]
   else:
-    encoder_inputs = [padding(np.concatenate([[BOS], data]), max_time) for data in source_datas]
-    decoder_inputs = [padding(np.concatenate([[EOS], data]), decoder_max_time) for data in target_datas]
-    decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time) for data in target_datas]
+    encoder_inputs = [padding(np.concatenate([data, [EOS]]), max_time, pad=EOS) for data in source_datas]
+    decoder_inputs = [padding(np.concatenate([[BOS], data, [EOS]]), decoder_max_time, pad=EOS) for data in target_datas]
+    decoder_labels = [padding(np.concatenate([data, [EOS]]), decoder_max_time, pad=EOS) for data in target_datas]
+
+  if reverse:
+    encoder_inputs = np.fliplr(encoder_inputs)
 
   res = {'encoder_inputs': np.array(encoder_inputs).T, 
          'decoder_inputs': np.array(decoder_inputs).T, 
